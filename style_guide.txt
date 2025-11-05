@@ -1,0 +1,4 @@
+constants - ALL_CAPS_SNAKE_CASE (readonly, immutable)
+classes - PascalCase
+function/methods - camelCase
+variables - snake_case

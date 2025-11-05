@@ -1,0 +1,327 @@
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  ChatInputCommandInteraction,
+  ButtonInteraction,
+  ModalSubmitInteraction,
+  AnySelectMenuInteraction,
+} from "discord.js";
+import SlashCommands from "./slash_commands.js";
+import Page from "./page.js";
+import * as dotenv from "dotenv";
+import Database from "../util/database.js";
+import IgdbApi from "../api/igdb_api.js";
+import Utils from "../util/util.js";
+import Api from "../api/api.js";
+dotenv.config();
+
+// type definitions
+interface PageInstances {
+  message_id: string;
+  page_instance: InstanceType<typeof Page>;
+}
+
+const page_instances: PageInstances[] = [];
+
+// create database
+Database.initialize();
+
+// register slash commands
+SlashCommands.register();
+
+// start bot
+export const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+});
+
+client.once(Events.ClientReady, (readyClient) => {
+  console.log(`${readyClient.user.tag} is primed and ready for gaming.`);
+});
+
+// handle interactions
+client.on("interactionCreate", async (interaction) => {
+  // handle buttons
+  if (interaction.isButton()) {
+    const button_interaction = interaction as ButtonInteraction;
+    let page;
+    for (let instance of page_instances) {
+      if (instance["message_id"] == button_interaction.message.id) {
+        page = instance.page_instance;
+      }
+    }
+    if (!page) {
+      console.error("No valid page instance!");
+      return;
+    }
+    page.setIds(
+      button_interaction.message.id,
+      button_interaction.message.channelId,
+    );
+    // page interaction events
+    switch (button_interaction.customId) {
+      case "search": {
+        await Page.searchModal(
+          button_interaction,
+          button_interaction.message.id,
+        );
+        break;
+      }
+      // search selection logic search > platform > region
+      case "select": {
+        button_interaction.deferUpdate();
+        if (page.search_object.method == "search") {
+          await page.confirmPlatform(
+            client,
+            button_interaction.guildId as string,
+            1,
+          );
+        } else if (page.search_object.method == "platform") {
+          await page.confirmPlatform(
+            client,
+            button_interaction.guildId as string,
+            page.search_object.page,
+            true,
+          );
+        } else if (page.search_object.method == "region") {
+          await page.confirmRegion(
+            client,
+            button_interaction.guildId as string,
+            page.search_object.page,
+            true,
+          );
+        }
+        break;
+      }
+      case "games": {
+        break;
+      }
+      case "settings": {
+        button_interaction.deferUpdate();
+        await page.settings(client, button_interaction.guildId as string);
+        break;
+      }
+      case "back_search": {
+        button_interaction.deferUpdate();
+        let current_page = 1;
+        if (page.search_object.selected) {
+          page.search_object.page = page.search_object.selected;
+          current_page = page.search_object.page;
+        }
+        await page.search(
+          current_page,
+          client,
+          button_interaction.guildId as string,
+        );
+        break;
+      }
+      case "back": {
+        button_interaction.deferUpdate();
+        await page.home(client);
+        break;
+      }
+      case "previous": {
+        if (!page.search_object["max_length"]) {
+          console.error("max_length undefined");
+          return;
+        }
+        if (page.search_object["page"] > 1) {
+          page.search_object["page"]--;
+        }
+        button_interaction.deferUpdate();
+        console.log(
+          `Page: ${page.search_object["page"]} of ${page.search_object["max_length"]}`,
+        );
+        page.changePage(
+          client,
+          button_interaction.guildId as string,
+          page.search_object["page"],
+        );
+        break;
+      }
+      case "next": {
+        if (!page.search_object["max_length"]) {
+          console.error("max_length undefined");
+          return;
+        }
+        if (page.search_object["page"] < page.search_object["max_length"]) {
+          page.search_object["page"]++;
+        }
+        button_interaction.deferUpdate();
+        console.log(
+          `Page: ${page.search_object["page"]} of ${page.search_object["max_length"]}`,
+        );
+        page.changePage(
+          client,
+          button_interaction.guildId as string,
+          page.search_object["page"],
+        );
+        break;
+      }
+    }
+    // slash commands events
+  } else if (interaction.isChatInputCommand()) {
+    const command_interaction = interaction as ChatInputCommandInteraction;
+    switch (command_interaction.commandName) {
+      case "notifier": {
+        const page = new Page();
+        await page.home(client, command_interaction);
+        if (page.message_id) {
+          page_instances.push({
+            message_id: page.message_id,
+            page_instance: page,
+          });
+        }
+        break;
+      }
+      // I think this is to vauge
+      // Search calls a hell of a lot its a chain of function
+      // searchModal > search > confirmPlatform > confirmRegion
+      // some logic is to long
+      case "search": {
+        await Page.searchModal(command_interaction);
+        break;
+      }
+      case "settings": {
+        const page = new Page();
+        await page.settings(
+          client,
+          command_interaction.guildId as string,
+          command_interaction,
+        );
+        if (page.message_id) {
+          page_instances.push({
+            message_id: page.message_id,
+            page_instance: page,
+          });
+        }
+        break;
+      }
+      default: {
+        command_interaction.reply("Not a valid command");
+        break;
+      }
+    }
+
+    // Modal submit events
+  } else if (interaction.isModalSubmit()) {
+    const modal_interaction = interaction as ModalSubmitInteraction;
+
+    // using the modals customId to also pass in the current message id which is needed to edit the specific message
+    let custom_id, message_id;
+    if (modal_interaction.customId.includes(":")) {
+      [custom_id, message_id] = modal_interaction.customId.split(":");
+    } else {
+      custom_id = modal_interaction.customId;
+    }
+    // called when search page is submited
+    if (custom_id == "search_modal") {
+      const search_query =
+        modal_interaction.fields.getTextInputValue("search_query");
+      if (search_query) {
+        let page;
+        let search;
+        if (message_id) {
+          for (let instance of page_instances) {
+            if (instance["message_id"] == message_id) {
+              page = instance.page_instance;
+            }
+          }
+          if (!page) {
+            console.log("No valid page instance!");
+            return;
+          }
+          page.search_object["page"] = 1;
+          search = await page.search(
+            page.search_object["page"],
+            client,
+            modal_interaction.guildId as string,
+            search_query,
+          );
+          modal_interaction.deferUpdate();
+        } else {
+          page = new Page();
+          search = await page.search(
+            page.search_object["page"],
+            client,
+            modal_interaction.guildId as string,
+            search_query,
+            modal_interaction,
+          );
+        }
+        if (!page) return;
+        if (search) {
+          page.search_object["page"] = search["page"];
+          page.search_object["max_length"] = search["max_length"];
+        }
+        if (!message_id && page.message_id) {
+          page_instances.push({
+            message_id: page.message_id,
+            page_instance: page,
+          });
+        }
+      }
+    }
+    // handle select
+  } else if (interaction.isAnySelectMenu()) {
+    const select_interaction = interaction as AnySelectMenuInteraction;
+    switch (select_interaction.customId) {
+      case "channel": {
+        select_interaction.deferUpdate();
+        const selected_channel = String(select_interaction.values);
+        const select_sql = "SELECT * FROM settings WHERE server_id = ?";
+        const select = await Database.get(select_sql, [
+          select_interaction.guildId,
+        ]);
+        if (select) {
+          const insert_sql = "UPDATE settings SET channel_id = ?";
+          const resolve_message = `Channel updated to ${selected_channel}`;
+          await Database.run(insert_sql, [selected_channel], resolve_message);
+        } else {
+          const update_sql =
+            "INSERT INTO settings (server_id, channel_id) VALUES (?, ?)";
+          const resolve_message = `Channel set to ${selected_channel}`;
+          await Database.run(
+            update_sql,
+            [select_interaction.guildId, selected_channel],
+            resolve_message,
+          );
+        }
+        break;
+      }
+      case "platforms": {
+        select_interaction.deferUpdate();
+        const selected_platforms = select_interaction.values;
+        const platforms_string = JSON.stringify(selected_platforms);
+        const select_sql = "SELECT * FROM settings WHERE server_id = ?";
+        const select = await Database.get(select_sql, [
+          select_interaction.guildId,
+        ]);
+        if (select) {
+          const insert_sql = "UPDATE settings SET platforms = ?";
+          const resolve_message = `Platforms updated to ${platforms_string}`;
+          await Database.run(insert_sql, [platforms_string], resolve_message);
+        } else {
+          const update_sql =
+            "INSERT INTO settings (server_id, platforms) VALUES (?, ?)";
+          const resolve_message = `Platforms set to ${platforms_string}`;
+          await Database.run(
+            update_sql,
+            [select_interaction.guildId, platforms_string],
+            resolve_message,
+          );
+        }
+        break;
+      }
+    }
+    // ignore other interactions
+  } else {
+    return;
+  }
+});
+
+client.login(process.env["DISCORD_TOKEN"]);
