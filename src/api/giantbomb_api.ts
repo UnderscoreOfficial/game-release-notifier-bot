@@ -1,6 +1,7 @@
 import * as dotenv from "dotenv";
 import {
   ApiGameReleasesResults,
+  ApiGameSearchResult,
   GamePlatforms,
   GameRelease,
   GameReleaseDateObject,
@@ -9,6 +10,8 @@ import {
   Platforms,
 } from "./api_types.js";
 import Database from "../util/database.js";
+import { url } from "inspector";
+import { resourceUsage } from "process";
 dotenv.config();
 
 export default class GiantBombApi {
@@ -66,16 +69,27 @@ export default class GiantBombApi {
     return url;
   }
 
-  static #urlMakeInfo(guid: string): string {
+  static #urlMakeInfo(guid: number): string {
     const url = `https://www.giantbomb.com/api/game/${guid}/?api_key=${this.#API_KEY}&format=json`;
     return url;
   }
 
-  static #urlMakeReleases(id: number, platform: string): string {
+  static #urlMakeReleases(id: number, platforms: number[]): string[] {
+    // dumb api, can't filter based on multiple platforms
     const base_url = `https://www.giantbomb.com/api/releases/?api_key=${this.#API_KEY}&format=json`;
-    const filters = `&filter=game:${id},platform:${platform}&field_list=release,release_date,id,guid,name,platform,region`;
-    const url = `${base_url}${filters}`;
-    return url;
+    const game_filter = `&filter=game:${id}`;
+    const field_filter = `&field_list=release,release_date,id,guid,name,platform,region`;
+    const urls = [];
+    for (let platform of platforms) {
+      let url = `${base_url}${game_filter}`;
+      if (platform == 0) {
+        urls.push(`${url}${field_filter}`);
+        break;
+      } else {
+        urls.push(`${url},platform:${platform}${field_filter}`);
+      }
+    }
+    return urls;
   }
 
   static async #urlFetch(url: string): Promise<JSON | undefined> {
@@ -87,15 +101,26 @@ export default class GiantBombApi {
     return undefined;
   }
 
+  public static async getGame(game_id: number): Promise<GameSearchResult> {
+    const game_data = (await this.#urlFetch(
+      this.#urlMakeInfo(game_id),
+    )) as unknown as ApiGameSearchResult;
+    return game_data.results;
+  }
+
   public static async gameReleases(
     id: number,
-    platform: number[],
+    platforms: number[],
   ): Promise<GameRelease[] | []> {
-    const releases_url = this.#urlMakeReleases(id, platform.join(","));
-    const releases_data = (await this.#urlFetch(
-      releases_url,
-    )) as unknown as ApiGameReleasesResults;
-    return releases_data["results"];
+    const releases_urls = this.#urlMakeReleases(id, platforms);
+    const combined_release_results: GameRelease[] = [];
+    for (let url of releases_urls) {
+      const releases_data = (await this.#urlFetch(
+        url,
+      )) as unknown as ApiGameReleasesResults;
+      combined_release_results.push(...releases_data.results);
+    }
+    return combined_release_results;
   }
 
   public static async gameReleaseDate(
@@ -108,18 +133,18 @@ export default class GiantBombApi {
 
     // comparison data if there is a original / first release date
     if (current_game.original_release_date) {
-      const date = new Date(current_game.original_release_date);
+      let date = new Date(current_game.original_release_date);
       const all_platforms = Object.values(GiantBombApi.platforms).slice(1);
       const all_releases = await GiantBombApi.gameReleases(
         current_game.id as number,
-        all_platforms,
+        [0],
       );
 
       let releases_with_same_dates = 0;
       for (let release of all_releases) {
         if (
           release.platform?.id == selected_platform &&
-          release.release_date == release.release_date
+          release.release_date == String(date)
         ) {
           console.log("Valid platform with release date");
           return {
@@ -128,9 +153,10 @@ export default class GiantBombApi {
           };
         } else if (
           release.platform?.id == selected_platform &&
-          release.release_date != release.release_date
+          release.release_date != String(date)
         ) {
           console.log("Valid platform with different release date");
+          date = new Date(String(release.release_date));
           return {
             date: date,
             type: "release",
@@ -148,7 +174,16 @@ export default class GiantBombApi {
       // If all the release platforms are the same & the original / first release date this is also
       // likely the case of a missing platform
       // so just alert user requires manual checking likely due to missing api data
-      if (releases_with_same_dates == all_releases.length) {
+      if (releases_with_same_dates == 0) {
+        // not 100% sure on this check but many games will just have a date 0 actual releases added
+        console.log(
+          "No found releases at all but original release date, likely games release date ",
+        );
+        return {
+          date: date,
+          type: "release",
+        };
+      } else if (releases_with_same_dates == all_releases.length) {
         console.log(
           "No found release platforms but initial release date might be right",
         );
@@ -186,167 +221,6 @@ export default class GiantBombApi {
       date: date,
       type: "expected",
     };
-  }
-
-  // this needs to be fully rebuilt all the logic should happen within gameReleaseDate none within .page
-  // page then can take the retuned date and do formating or whatever
-  public static async oldGameReleaseDate(
-    current_game: GameSearchResult,
-    platform: number,
-    has_release: boolean,
-    game_release: GameRelease | undefined = undefined,
-  ): Promise<GameReleaseDateObject> {
-    // When using the first or original date on a game object it needs to be verified further as its possible
-    // to get a false date not belonging to a platform you have selected due to api not having perfect data
-    async function verifyPlatforms(): Promise<GameReleaseDateObject> {
-      if (!current_game.original_release_date || !game_release) {
-        return {
-          date: null,
-          type: "error",
-        };
-      }
-      const date = new Date(current_game.original_release_date);
-      const all_platforms = Object.values(GiantBombApi.platforms).slice(1);
-      const all_releases = await GiantBombApi.gameReleases(
-        current_game.id as number,
-        all_platforms,
-      );
-      let releases_with_same_dates = 0;
-
-      for (let release of all_releases) {
-        if (
-          release.platform?.id == game_release.id &&
-          release.release_date == release.release_date
-        ) {
-          console.log("Valid platform with release date");
-          return {
-            date: date,
-            type: "release",
-          };
-        } else if (
-          release.platform?.id == game_release.id &&
-          release.release_date != release.release_date
-        ) {
-          console.log("Valid platform with different release date");
-          return {
-            date: date,
-            type: "release",
-          };
-        } else if (
-          release.platform?.id != game_release.id &&
-          release.release_date == release.release_date
-        ) {
-          releases_with_same_dates++;
-        }
-      }
-
-      if (
-        releases_with_same_dates == 0 ||
-        releases_with_same_dates != all_releases.length
-      ) {
-        console.log(
-          "No found release platforms but initial release date might be right",
-        );
-        return {
-          date: date,
-          type: "release",
-        };
-      } else if (releases_with_same_dates == all_releases.length) {
-        console.log(
-          "Release date is likely missing for the specific desired platform",
-        );
-        return {
-          date: null,
-          type: "error",
-        };
-      }
-      return {
-        date: null,
-        type: "error",
-      };
-    }
-
-    const info_url = this.#urlMakeInfo(`3030-${current_game["id"]}`);
-    const info_data = (await this.#urlFetch(info_url)) as any; // temp;
-    if (has_release && game_release && game_release["release_date"]) {
-      const date = new Date(game_release["release_date"]);
-      // if game release matches but is not the same platform log this, and continue checking all other releases
-      // - If the total releases is equal to the checked release meaning all releases have the same date but different platforms
-      //
-      //   The expectation should be this game does not have a release date for this platform even if there is a date its safer to air on the side of
-      //   no date since it could be the case like spiderman 2 a release date is just missing even tho it should exist it dosent so u can't pully anything
-      //
-      // - If the total releases does not match the the counted matching release dates, this one is complicated since the games are already filtered by platform
-      // so any game under this really should have a release date for the platform I think in this case I will probably fallback to the release_date but
-      // preface it to the user that while this is likely the release date there was no way to 100% confirm it for the desired platform and manual intervevetion
-      // may be required
-
-      return verifyPlatforms();
-    } else {
-      // 2 cases, 1st case no release date at all (expected behavior for unconfirmed game dates), 2nd case
-      // some games may have missing releases for platforms. Both will use
-      // expected release dates as fallback (assuming desired platforms are present).
-      if (!info_data) {
-        console.error("Failed to fetch game data");
-        return {
-          date: null,
-          type: "error",
-        };
-      }
-      if (info_data["number_of_total_results"] > 0) {
-        let has_platform = false;
-        for (let current_platform of info_data["results"]["platforms"]) {
-          if (current_platform["id"] == platform) {
-            has_platform = true;
-            break;
-          }
-        }
-        if (has_platform) {
-          const expected_year = info_data["results"][
-            "expected_release_year"
-          ] as number;
-          const expected_month = info_data["results"][
-            "expected_release_month"
-          ] as number;
-          const expected_day = info_data["results"][
-            "expected_release_day"
-          ] as number;
-          const original_release_date = info_data["results"][
-            "original_release_date"
-          ] as string | null;
-          if (!expected_year || !expected_month || !expected_day) {
-            if (original_release_date) {
-              verifyPlatforms();
-            } else {
-              console.warn("No expected release date");
-              return {
-                date: null,
-                type: "TBA",
-              };
-            }
-          }
-          const expected_date = `${expected_year}-${expected_month}-${expected_day}`;
-          const date = new Date(expected_date);
-          console.log(expected_date, date);
-          return {
-            date: date,
-            type: "expected",
-          };
-        } else {
-          console.error("Game does not have specifed platforms");
-          return {
-            date: null,
-            type: "error",
-          };
-        }
-      } else {
-        console.error("Game has no platforms");
-        return {
-          date: null,
-          type: "error",
-        };
-      }
-    }
   }
 
   public static async filterPlatforms(
@@ -397,5 +271,5 @@ export default class GiantBombApi {
   }
 }
 
-const giantbomb_platform_values: GiantbombPlatformValues = {} as const;
+export const giantbomb_platform_values: GiantbombPlatformValues = {} as const;
 Object.assign(giantbomb_platform_values, GiantBombApi.platforms);

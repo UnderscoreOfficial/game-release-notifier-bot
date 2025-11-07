@@ -13,6 +13,10 @@ export default class SlashCommands {
         "Search for a game from GiantBomb (More accurate release dates)",
     },
     {
+      name: "games",
+      description: "List and search currently addeded games on a server.",
+    },
+    {
       name: "notifier",
       description: "Interact with the bot with a homepage of all options",
     },

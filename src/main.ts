@@ -1,7 +1,9 @@
 import { platform } from "os";
 import Api from "./api/api.js";
 import { Platforms } from "./api/api_types.js";
-import GiantBombApi from "./api/giantbomb_api.js";
+import GiantBombApi, {
+  giantbomb_platform_values,
+} from "./api/giantbomb_api.js";
 import IgdbApi from "./api/igdb_api.js";
 import Database from "./util/database.js";
 
@@ -37,15 +39,6 @@ async function getArgs(): Promise<void> {
       });
     }
   } else if (args[2] == "test") {
-    const server_platforms = await GiantBombApi.getPlatforms(
-      "1103728223948374088",
-    );
-    const [valid_games, valid_platforms, valid_platform_ids] =
-      await GiantBombApi.search(server_platforms, "fortnite");
-
-    if (valid_games[0]) {
-      const data = GiantBombApi.oldGameReleaseDate(valid_games[0], 94, true);
-    }
   } else if (args[2] == "igdb") {
     const igdb_api = new IgdbApi();
     await igdb_api.authenticate();

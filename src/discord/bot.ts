@@ -62,13 +62,40 @@ client.on("interactionCreate", async (interaction) => {
       button_interaction.message.id,
       button_interaction.message.channelId,
     );
+
+    let custom_id, button_data;
+    if (button_interaction.customId.includes(":")) {
+      [custom_id, button_data] = button_interaction.customId.split(":");
+    } else {
+      custom_id = button_interaction.customId;
+    }
+
     // page interaction events
-    switch (button_interaction.customId) {
+    switch (custom_id) {
       case "search": {
         await Page.searchModal(
           button_interaction,
           button_interaction.message.id,
         );
+        break;
+      }
+      case "select_game": {
+        await Page.selectGameModal(
+          button_interaction,
+          button_interaction.message.id,
+        );
+        break;
+      }
+      case "change_game_date": {
+        if (button_data) {
+          await Page.updateGameDateModal(
+            button_interaction,
+            button_data,
+            button_interaction.message.id,
+          );
+        } else {
+          console.error("Missing button data for change date 97");
+        }
         break;
       }
       // search selection logic search > platform > region
@@ -97,7 +124,33 @@ client.on("interactionCreate", async (interaction) => {
         }
         break;
       }
+      case "delete": {
+        button_interaction.deferUpdate();
+        if (button_data) {
+          try {
+            const game = await Database.run(
+              "DELETE FROM games WHERE game_id = ?",
+              [Number(button_data)],
+              "Game deleted from database",
+            );
+            await page.games(
+              client,
+              button_interaction.guildId as string,
+              page.search_object.page,
+            );
+          } catch (error) {
+            console.error(error);
+          }
+        }
+        break;
+      }
       case "games": {
+        button_interaction.deferUpdate();
+        await page.games(
+          client,
+          button_interaction.guildId as string,
+          page.search_object.page,
+        );
         break;
       }
       case "settings": {
@@ -178,12 +231,25 @@ client.on("interactionCreate", async (interaction) => {
         }
         break;
       }
-      // I think this is to vauge
-      // Search calls a hell of a lot its a chain of function
       // searchModal > search > confirmPlatform > confirmRegion
-      // some logic is to long
       case "search": {
         await Page.searchModal(command_interaction);
+        break;
+      }
+      case "games": {
+        const page = new Page();
+        await page.games(
+          client,
+          command_interaction.guildId as string,
+          1,
+          command_interaction,
+        );
+        if (page.message_id) {
+          page_instances.push({
+            message_id: page.message_id,
+            page_instance: page,
+          });
+        }
         break;
       }
       case "settings": {
@@ -212,9 +278,18 @@ client.on("interactionCreate", async (interaction) => {
     const modal_interaction = interaction as ModalSubmitInteraction;
 
     // using the modals customId to also pass in the current message id which is needed to edit the specific message
-    let custom_id, message_id;
+    let custom_id, message_id, game_id;
     if (modal_interaction.customId.includes(":")) {
-      [custom_id, message_id] = modal_interaction.customId.split(":");
+      const data = modal_interaction.customId.split(":");
+      for (let i of data) {
+        if (i.includes("message-")) {
+          message_id = i.split("-")[1];
+        } else if (i.includes("game-")) {
+          game_id = i.split("-")[1];
+        } else {
+          custom_id = i;
+        }
+      }
     } else {
       custom_id = modal_interaction.customId;
     }
@@ -265,8 +340,88 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
       }
+    } else if (custom_id == "select_game_modal") {
+      const selected_game =
+        modal_interaction.fields.getTextInputValue("selected_game");
+      if (selected_game) {
+        let page;
+        let search;
+        if (message_id) {
+          for (let instance of page_instances) {
+            if (instance["message_id"] == message_id) {
+              page = instance.page_instance;
+            }
+          }
+          if (!page) {
+            console.log("No valid page instance!");
+            return;
+          }
+          search = await page.selectGame(
+            client,
+            modal_interaction.guildId as string,
+            selected_game,
+          );
+          modal_interaction.deferUpdate();
+        } else {
+          page = new Page();
+          search = await page.selectGame(
+            client,
+            modal_interaction.guildId as string,
+            selected_game,
+          );
+        }
+        if (!page) return;
+        if (!message_id && page.message_id) {
+          page_instances.push({
+            message_id: page.message_id,
+            page_instance: page,
+          });
+        }
+      }
+    } else if (custom_id == "update_game_date_modal") {
+      const game_date = modal_interaction.fields.getTextInputValue("game_date");
+      if (!game_id) {
+        console.error("Can't update game date no game_id 377");
+        return;
+      }
+      if (game_date) {
+        let page;
+        let search;
+        if (message_id) {
+          for (let instance of page_instances) {
+            if (instance["message_id"] == message_id) {
+              page = instance.page_instance;
+            }
+          }
+          if (!page) {
+            console.log("No valid page instance!");
+            return;
+          }
+          search = await page.updateGameDate(
+            client,
+            modal_interaction.guildId as string,
+            game_id,
+            game_date,
+          );
+          modal_interaction.deferUpdate();
+        } else {
+          page = new Page();
+          search = await page.updateGameDate(
+            client,
+            modal_interaction.guildId as string,
+            game_id,
+            game_date,
+          );
+        }
+        if (!page) return;
+        if (!message_id && page.message_id) {
+          page_instances.push({
+            message_id: page.message_id,
+            page_instance: page,
+          });
+        }
+      }
     }
-    // handle select
   } else if (interaction.isAnySelectMenu()) {
     const select_interaction = interaction as AnySelectMenuInteraction;
     switch (select_interaction.customId) {

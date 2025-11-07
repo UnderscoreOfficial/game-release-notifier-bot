@@ -19,6 +19,7 @@ import {
 import Api from "../api/api.js";
 import Database from "../util/database.js";
 import {
+  GameDatabaseObj,
   GamePlatforms,
   GameRelease,
   GameReleaseDateObject,
@@ -75,7 +76,7 @@ export default class Page {
       new ButtonBuilder()
         .setCustomId("settings")
         .setLabel("Settings")
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Primary),
     );
     row.components.push(
       new ButtonBuilder()
@@ -99,6 +100,121 @@ export default class Page {
       )
       .setColor(0x79a475);
 
+    let message: Message | undefined;
+    if (interaction) {
+      const reply = await interaction.reply({
+        embeds: [embed],
+        components: [row],
+        fetchReply: true,
+      });
+      message = reply.reactions.message;
+    } else {
+      if (this.message_id && this.channel_id) {
+        const channel = await client.channels.fetch(this.channel_id);
+        if (channel?.isTextBased()) {
+          message = await channel.messages.fetch(this.message_id);
+          message.edit({ embeds: [embed], components: [row] });
+        }
+      }
+    }
+    if (message) {
+      this.setIds(message.id, message.channelId);
+    }
+  }
+
+  public async games(
+    client: Client,
+    guild_id: string,
+    page: number,
+    interaction: ChatInputCommandInteraction | undefined = undefined,
+  ) {
+    this.search_object.method = "games";
+
+    const select_sql = "SELECT * FROM games WHERE server_id = ?";
+    const all_games = (await Database.all(select_sql, [
+      guild_id,
+    ])) as GameDatabaseObj[];
+
+    // page logic
+    const games_per_page = 20;
+    const total_pages = Math.ceil(all_games.length / games_per_page);
+    this.search_object.max_length = total_pages;
+    const starting_game = (page - 1) * games_per_page;
+    const ending_game = page * games_per_page;
+
+    const games = all_games.slice(starting_game, ending_game);
+
+    let description = "";
+    let counter = 1;
+    for (let game of games) {
+      let game_date = game.release_date;
+      if (game.release_date.includes("undefined")) {
+        game_date = "TBA\_\_\_TBA\_";
+      }
+      if (game_date.length < 10) {
+        game_date += "\_";
+      }
+      if (counter % 2) {
+        description += `**|**\\_\\_\`${game_date}\` - **${game.name}**\n`;
+      } else {
+        description += `> \`${game_date}\` - **${game.name}**\n`;
+      }
+      counter++;
+    }
+
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    row.components.push(
+      new ButtonBuilder()
+        .setCustomId("back")
+        .setLabel("🡄 Back")
+        .setStyle(ButtonStyle.Secondary),
+    );
+    if (page == 1) {
+      row.components.push(
+        new ButtonBuilder()
+          .setCustomId("previous")
+          .setLabel("🡄")
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(true),
+      );
+    } else {
+      row.components.push(
+        new ButtonBuilder()
+          .setCustomId("previous")
+          .setLabel("🡄")
+          .setStyle(ButtonStyle.Primary),
+      );
+    }
+    if (page == total_pages) {
+      row.components.push(
+        new ButtonBuilder()
+          .setCustomId("next")
+          .setLabel("🡆")
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(true),
+      );
+    } else {
+      row.components.push(
+        new ButtonBuilder()
+          .setCustomId("next")
+          .setLabel("🡆")
+          .setStyle(ButtonStyle.Primary),
+      );
+    }
+    row.components.push(
+      new ButtonBuilder()
+        .setCustomId("select_game")
+        .setLabel("Select Game")
+        .setStyle(ButtonStyle.Primary),
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Total Games - ${all_games.length}`)
+      .setDescription(description ?? "No games")
+      .setColor(0x79a475)
+      .setFooter({
+        text: `${page} of ${total_pages}`,
+      });
     let message: Message | undefined;
     if (interaction) {
       const reply = await interaction.reply({
@@ -265,6 +381,107 @@ export default class Page {
     );
   }
 
+  public async updateGameDate(
+    client: Client,
+    guild_id: string,
+    game_id: string,
+    game_date: string,
+  ): Promise<SearchObject | void> {
+    const regex = /^\d{1,2}-\d{1,2}-\d{2,4}$/;
+    if (regex.test(game_date)) {
+      await Database.run(
+        "UPDATE games SET release_date = ? WHERE game_id = ?",
+        [game_date, game_id],
+      );
+      const game = (await Database.get(
+        "SELECT * FROM games WHERE game_id = ?",
+        [game_id],
+      )) as GameDatabaseObj;
+      this.selectGame(client, guild_id, game.name);
+    } else {
+      console.warn("Invalid Date Format");
+    }
+  }
+
+  public async selectGame(
+    client: Client,
+    guild_id: string,
+    selected_game: string,
+    interaction: ModalSubmitInteraction | undefined = undefined,
+  ): Promise<SearchObject | void> {
+    const embed = new EmbedBuilder();
+    embed
+      // .setURL("a url")
+      .setColor(0x79a475);
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    row.components.push(
+      new ButtonBuilder()
+        .setCustomId("games")
+        .setLabel("🡄 Back")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    // fuzzy filtering game but will only return 1 game so needs to be pretty specific
+    if (selected_game) {
+      const avaliable_server_games = (await Database.all(
+        "SELECT * FROM games WHERE server_id = ?",
+        [guild_id],
+      )) as GameDatabaseObj[];
+      for (let game of avaliable_server_games) {
+        if (game.name.toLowerCase().includes(selected_game.toLowerCase())) {
+          const giantbomb_game = await GiantBombApi.getGame(game.game_id);
+          embed
+            .setTitle(`${game.name}`)
+            .setURL(giantbomb_game.site_detail_url)
+            .setImage(
+              giantbomb_game.image?.medium_url ??
+                "https://media.istockphoto.com/id/1011853308/vector/page-not-found.webp?s=1024x1024&w=is&k=20&c=oI6GgsQ44kGHNpX4oZalcuHSxqbpnbP8xGyQlH-v74k=",
+            )
+            .setDescription(giantbomb_game.deck ?? "Missing Description")
+            .addFields({ name: "Release Date", value: `${game.release_date}` });
+          row.components.push(
+            new ButtonBuilder()
+              .setCustomId(`delete:${game.game_id}`)
+              .setLabel("Delete")
+              .setStyle(ButtonStyle.Danger),
+          );
+          row.components.push(
+            new ButtonBuilder()
+              .setCustomId(`change_game_date:${game.game_id}`)
+              .setLabel("Change Date")
+              .setStyle(ButtonStyle.Primary),
+          );
+          break;
+        }
+        embed
+          .setTitle(`No game found`)
+          .setDescription("This game does not exist");
+      }
+      row.components.push(
+        new ButtonBuilder()
+          .setCustomId("select_game")
+          .setLabel("Select Game")
+          .setStyle(ButtonStyle.Primary),
+      );
+    }
+
+    let message: Message | undefined;
+    if (interaction) {
+      const reply = await interaction.reply({
+        embeds: [embed],
+        components: [row],
+        fetchReply: true,
+      });
+      message = reply.reactions.message;
+    } else {
+      console.log(message);
+      this.#editMessage(client, embed, row);
+    }
+    if (message) {
+      this.setIds(message.id, message.channelId);
+    }
+  }
+
   public async search(
     page: number,
     client: Client,
@@ -288,9 +505,6 @@ export default class Page {
           return;
         }
 
-        // I need to look at this idfk why there is like 10 different places the game data is stored
-        // FIX
-        console.table({ giantbomb_games: giantbomb_games });
         this.search_object.giantbomb_search = giantbomb_games;
         this.search_object.filtered_platforms = valid_platforms;
         this.search_object.selected_platforms = valid_platform_ids;
@@ -354,13 +568,7 @@ export default class Page {
       message = reply.reactions.message;
     } else {
       console.log(message);
-      if (this.message_id && this.channel_id) {
-        const channel = await client.channels.fetch(this.channel_id);
-        if (channel?.isTextBased()) {
-          message = await channel.messages.fetch(this.message_id);
-          message.edit({ embeds: [embed], components: [row] });
-        }
-      }
+      this.#editMessage(client, embed, row);
     }
     if (message) {
       this.setIds(message.id, message.channelId);
@@ -408,13 +616,7 @@ export default class Page {
         .setURL(current_page_data.site_detail_url)
         .addFields({ name: "No Platforms", value: " " })
         .setColor(0x79a475);
-      if (this.message_id && this.channel_id) {
-        const channel = await client.channels.fetch(this.channel_id);
-        if (channel?.isTextBased()) {
-          const message = await channel.messages.fetch(this.message_id);
-          message.edit({ embeds: [embed], components: [row] });
-        }
-      }
+      this.#editMessage(client, embed, row);
       console.error("Platforms null or have no length");
       return;
     }
@@ -468,13 +670,7 @@ export default class Page {
       .setColor(0x79a475)
       .setFooter({ text: `${page} of ${max_length}` });
 
-    if (this.message_id && this.channel_id) {
-      const channel = await client.channels.fetch(this.channel_id);
-      if (channel?.isTextBased()) {
-        const message = await channel.messages.fetch(this.message_id);
-        message.edit({ embeds: [embed], components: [row] });
-      }
-    }
+    this.#editMessage(client, embed, row);
   }
 
   async #editMessage(
@@ -535,6 +731,7 @@ export default class Page {
       let title = `${name} - Something went wrong!.`;
       let description = `${name} could not be added.`;
       let date_type = `Missing Date`;
+      let released = false;
 
       const current_date = new Date();
       if (
@@ -546,6 +743,7 @@ export default class Page {
           if (game_release_date.date < current_date) {
             description = `${name} was added, this game is already out so you won't get any new messages about it.`;
             date_type = "Released Date";
+            released = true;
           } else {
             description = `${name} was added, you will receive a message in your selected channel when it releases.`;
             date_type = "Expected Release Date";
@@ -561,11 +759,22 @@ export default class Page {
         date_type = "Potential Release Date";
       }
 
+      const year = game_release_date.date?.getUTCFullYear();
+      let month = game_release_date.date?.getUTCMonth();
+      const day = game_release_date.date?.getUTCDate();
+      if (month) month++;
+
+      let date = `${month}-${day}-${year}`;
+      if (date.toLowerCase().includes("undefined")) {
+        date = "TBA___TBA_";
+      }
+
       return {
-        date: game_release_date.date?.toUTCString(),
+        date: date,
         title: title,
         description: description,
         date_type: date_type,
+        released_status: released,
       };
     }
 
@@ -574,16 +783,27 @@ export default class Page {
         await GiantBombApi.gameReleaseDate(current_page_game_data, platform),
       );
 
+      const date = new Date(game_messages.date);
       embed
         .setTitle(game_messages.title)
         .setDescription(game_messages.description);
       if (game_messages.date) {
         embed.addFields({
           name: game_messages.date_type,
-          value: game_messages.date,
+          value: date.toDateString(),
         });
         console.log(`${game_messages.date_type}: ${game_messages.date}`);
       }
+      minimalNavBar();
+      this.#editMessage(client, embed, row);
+      // add game to db
+      await Database.game(
+        current_page_game_data,
+        game_messages.date,
+        game_messages.released_status,
+        guild_id,
+        "giantbomb",
+      );
       return;
     }
 
@@ -616,7 +836,6 @@ export default class Page {
       }
 
       console.log("Multiple Game Releases. Showing selection menu.");
-      this.#navButtons(row);
       embed
         .setTitle(`${regions["name"]} - Select Region`)
         .setFooter({ text: `${page} of ${max_length}` });
@@ -624,308 +843,36 @@ export default class Page {
       if (regions["region"] && regions["region"]["name"]) {
         embed.addFields({ name: "Region", value: regions["region"]["name"] });
       }
+      this.#navButtons(row);
       this.#editMessage(client, embed, row);
       return;
     } else {
-      minimalNavBar();
-
       const game_messages = releaseMessageFormating(
         await GiantBombApi.gameReleaseDate(current_page_game_data, platform),
       );
 
+      const date = new Date(game_messages.date);
       embed
         .setTitle(game_messages.title)
         .setDescription(game_messages.description);
       if (game_messages.date) {
         embed.addFields({
           name: game_messages.date_type,
-          value: game_messages.date,
+          value: date.toDateString(),
         });
         console.log(`${game_messages.date_type}: ${game_messages.date}`);
       }
+      minimalNavBar();
       this.#editMessage(client, embed, row);
       // add game to database
-      return;
-    }
-  }
-
-  // confirmRegion is called after confirmPlatform
-  public async oldConfirmRegion(
-    client: Client,
-    guild_id: string,
-    page: number,
-    select: boolean = false,
-  ) {
-    this.search_object.method = "region";
-    if (!this.search_object.giantbomb_search) {
-      console.error("game_search undefined");
-      return;
-    }
-    if (!this.search_object.selected) {
-      console.error("No selected search_object in region?");
-      return;
-    }
-    if (page) {
-      this.search_object.page = page;
-    }
-
-    const selected = this.search_object.selected;
-    let current_page_data = this.search_object.giantbomb_search[
-      selected - 1
-    ] as GameSearchResult;
-    if (this.search_object.giantbomb_search) {
-      current_page_data = this.search_object.giantbomb_search[
-        selected - 1
-      ] as GameSearchResult;
-    }
-
-    let platform;
-    if (this.search_object.selected_platform) {
-      platform = this.search_object.selected_platform;
-    }
-
-    if (!platform) {
-      console.error("No selected platform for region to use");
-      return;
-    }
-
-    // shared message builder
-    const row = new ActionRowBuilder<ButtonBuilder>();
-    const embed = new EmbedBuilder()
-      .setURL(current_page_data.site_detail_url)
-      .setColor(0x79a475);
-    function minimalNavBar() {
-      row.components.push(
-        new ButtonBuilder()
-          .setCustomId("back_search")
-          .setLabel("🡄 Back")
-          .setStyle(ButtonStyle.Secondary),
+      await Database.game(
+        current_page_game_data,
+        game_messages.date,
+        game_messages.released_status,
+        guild_id,
+        "giantbomb",
       );
-    }
-    function releaseDateEmbedBuilder(
-      embed: EmbedBuilder,
-      game_name: string | null,
-      description: string,
-      title: string,
-      date_type: string,
-      date?: Date,
-    ) {
-      embed
-        .setTitle(`${game_name ?? "Game"} - ${title}`)
-        .setDescription(`${game_name ?? "Game"} ${description}`);
-      if (date) {
-        embed.addFields({
-          name: date_type,
-          value: date.toUTCString(),
-        });
-        console.log(`${date_type}: ${date.toUTCString()}`);
-      } else {
-        console.log(`${date_type}: ${game_name}`);
-      }
-    }
-
-    // region selection state
-    if (select) {
-      // all this should be handled in gameReleaseDates
-      if (this.search_object.game_releases) {
-        const game_releases = this.search_object.game_releases;
-        const game_release = game_releases[page - 1];
-        if (game_release) {
-          const game_release_date = await GiantBombApi.oldGameReleaseDate(
-            current_page_data,
-            platform,
-            true,
-            game_release,
-          );
-          if (game_release_date && game_release_date["date"]) {
-            minimalNavBar();
-            console.log(`Game Added: ${current_page_data["name"]}`);
-            const current_date = new Date();
-            if (game_release_date["date"] < current_date) {
-              releaseDateEmbedBuilder(
-                embed,
-                current_page_data?.name,
-                "was added, this game is already out so you won't get any new messages about it.",
-                "Added",
-                "Release Date",
-                game_release_date.date,
-              );
-            } else {
-              releaseDateEmbedBuilder(
-                embed,
-                current_page_data?.name,
-                "was added, you will receive a message in your selected channel when it releases.",
-                "Added",
-                "Expected Release Date",
-                game_release_date.date,
-              );
-            }
-
-            if (this.message_id && this.channel_id) {
-              const channel = await client.channels.fetch(this.channel_id);
-              if (channel?.isTextBased()) {
-                const message = await channel.messages.fetch(this.message_id);
-                message.edit({ embeds: [embed], components: [row] });
-              }
-            }
-            // add game to database
-          }
-        }
-      }
       return;
-    }
-
-    if (this.search_object.selected_platforms) {
-      // get game_releases
-      // not sure yet where this should be handled since confirmRegion should just
-      // focus on sending the user to the next step that is either a confirm region page or the final page of getting
-      // a release date and saving to db
-      let game_releases: GameRelease[] = [];
-      if (this.search_object.game_releases && page != 1) {
-        game_releases = this.search_object.game_releases;
-      } else {
-        console.log("Fetching new game_releases");
-        if (current_page_data.id) {
-          game_releases = await GiantBombApi.gameReleases(
-            current_page_data.id,
-            this.search_object.selected_platforms,
-          );
-          this.search_object.game_releases = game_releases;
-        } else {
-          console.log("Game missing id, line 592 pages.ts");
-          return;
-        }
-      }
-      // multiple game region release dates logic
-      if (game_releases.length > 1) {
-        console.log("Multiple game_releases");
-        const max_length = game_releases.length;
-        this.search_object.max_length = max_length;
-        const regions = game_releases[page - 1];
-        if (!regions) {
-          return console.error("Cannot access current_platform");
-        }
-
-        // build message
-        this.#navButtons(row);
-        embed
-          .setTitle(`${regions["name"]} - Select Region`)
-          .setFooter({ text: `${page} of ${max_length}` });
-
-        if (regions["region"] && regions["region"]["name"]) {
-          embed.addFields({ name: "Region", value: regions["region"]["name"] });
-        }
-
-        if (this.message_id && this.channel_id) {
-          const channel = await client.channels.fetch(this.channel_id);
-          if (channel?.isTextBased()) {
-            const message = await channel.messages.fetch(this.message_id);
-            message.edit({ embeds: [embed], components: [row] });
-          }
-        }
-      }
-      // single game region release dates logic
-      if (game_releases.length == 1) {
-        if (game_releases[0]) {
-          console.log("1 game_release");
-          const game_release_date = await GiantBombApi.oldGameReleaseDate(
-            current_page_data,
-            platform,
-            true,
-            game_releases[0],
-          );
-          if (game_release_date && game_release_date["date"]) {
-            console.log(`Game Added: ${current_page_data["name"]}`);
-            const current_date = new Date();
-            if (game_release_date["date"] < current_date) {
-              releaseDateEmbedBuilder(
-                embed,
-                current_page_data?.name,
-                "was added, this game is already out so you won't get any new messages about it.",
-                "Added",
-                "Release Date",
-                game_release_date.date,
-              );
-            } else {
-              releaseDateEmbedBuilder(
-                embed,
-                current_page_data?.name,
-                "was added, you will receive a message in your selected channel when it releases.",
-                "Added",
-                "Expected Release Date",
-                game_release_date.date,
-              );
-            }
-
-            if (this.message_id && this.channel_id) {
-              const channel = await client.channels.fetch(this.channel_id);
-              if (channel?.isTextBased()) {
-                const message = await channel.messages.fetch(this.message_id);
-                message.edit({ embeds: [embed], components: [row] });
-              }
-            }
-            // add game to database
-          }
-        }
-        // no avaliable release dates logic
-      } else if (game_releases.length == 0) {
-        const game_release_date = await GiantBombApi.oldGameReleaseDate(
-          current_page_data,
-          platform,
-          false,
-        );
-        minimalNavBar();
-        if (game_release_date && game_release_date["date"]) {
-          embed.setTitle(`${current_page_data["name"]} - Added`);
-          console.log(`Game Added: ${current_page_data["name"]}`);
-          const current_date = new Date();
-          if (game_release_date["date"] < current_date) {
-            releaseDateEmbedBuilder(
-              embed,
-              current_page_data?.name,
-              "was added, this game is already out so you won't get any new messages about it.",
-              "Added",
-              "Expected Release Date",
-              game_release_date.date,
-            );
-          } else {
-            releaseDateEmbedBuilder(
-              embed,
-              current_page_data?.name,
-              "was added, you will receive a message in your selected channel when it releases.",
-              "Added",
-              "Expected Release Date",
-              game_release_date.date,
-            );
-          }
-          // add game to database
-        } else if (game_release_date && game_release_date["type"] == "TBA") {
-          releaseDateEmbedBuilder(
-            embed,
-            current_page_data?.name,
-            "was added as TBA (To Be Announced), you will receive a message in your selected channel when it receives a release date.",
-            "Added as TBA",
-            "Game Added",
-          );
-          console.log(`Expected Release Date: TBA`);
-          // add game to database (TBA)
-        } else {
-          console.error("No game releases", game_releases.length);
-          embed
-            .setTitle(`${current_page_data["name"]} - Could not be added.`)
-            .setDescription(
-              `Something went wrong or was missing, (${current_page_data["name"]}) could not be added.`,
-            );
-          console.error(`Game Not Added: ${current_page_data["name"]}`);
-        }
-        if (this.message_id && this.channel_id) {
-          const channel = await client.channels.fetch(this.channel_id);
-          if (channel?.isTextBased()) {
-            const message = await channel.messages.fetch(this.message_id);
-            message.edit({ embeds: [embed], components: [row] });
-          }
-        }
-      }
     }
   }
 
@@ -948,7 +895,62 @@ export default class Page {
         this.confirmRegion(client, guild_id, page);
         break;
       }
+      case "games": {
+        this.games(client, guild_id, page);
+        break;
+      }
     }
+  }
+
+  public static async updateGameDateModal(
+    interaction: any,
+    game_id: string,
+    message_id: string | undefined = undefined,
+  ): Promise<void> {
+    const row = new ActionRowBuilder<ModalActionRowComponentBuilder>();
+
+    const search_query = new TextInputBuilder()
+      .setCustomId("game_date")
+      .setLabel("Enter new date for game must be m/d/y format")
+      .setValue("")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+    const modal = new ModalBuilder().setTitle("Update Game Date");
+    if (message_id) {
+      modal.setCustomId(
+        `update_game_date_modal:message-${message_id}:game-${game_id}`,
+      );
+    } else {
+      modal.setCustomId(`update_game_date_modal:game-${game_id}`);
+    }
+    row.addComponents(search_query);
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  }
+
+  public static async selectGameModal(
+    interaction: any,
+    message_id: string | undefined = undefined,
+  ): Promise<void> {
+    const row = new ActionRowBuilder<ModalActionRowComponentBuilder>();
+
+    const search_query = new TextInputBuilder()
+      .setCustomId("selected_game")
+      .setLabel("Select an added game based off its name.")
+      .setValue("")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+    const modal = new ModalBuilder().setTitle("Select Game");
+    if (message_id) {
+      modal.setCustomId(`select_game_modal:message-${message_id}`);
+    } else {
+      modal.setCustomId("select_game_modal");
+    }
+    row.addComponents(search_query);
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
   }
 
   public static async searchModal(
@@ -965,7 +967,7 @@ export default class Page {
       .setRequired(true);
     const modal = new ModalBuilder().setTitle("Search");
     if (message_id) {
-      modal.setCustomId(`search_modal:${message_id}`);
+      modal.setCustomId(`search_modal:message-${message_id}`);
     } else {
       modal.setCustomId("search_modal");
     }

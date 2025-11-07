@@ -11,6 +11,15 @@ export interface GiantbombPlatformValues {
   [key: string]: number;
 }
 
+export interface GameDatabaseObj {
+  id: number;
+  server_id: string;
+  game_id: number;
+  api_type: string;
+  name: string;
+  release_date: string;
+}
+
 export interface ApiResultsBase {
   error: string;
   limit: number;
@@ -80,6 +89,10 @@ export interface GameSearchResult {
 }
 export interface ApiGameSearchResults extends ApiResultsBase {
   results: GameSearchResult[] | [];
+}
+
+export interface ApiGameSearchResult extends ApiResultsBase {
+  results: GameSearchResult;
 }
 
 export interface ReleasePlatform {
