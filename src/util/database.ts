@@ -141,9 +141,18 @@ export default class Database {
       db.run(`CREATE TABLE IF NOT EXISTS settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         server_id TEXT NOT NULL,
-        last_checked_date TEXT,
         channel_id TEXT,
         platforms TEXT
+      )`),
+        (error: any) => {
+          if (error) {
+            return console.error(error);
+          }
+          console.log("Table created successfully.");
+        };
+      db.run(`CREATE TABLE IF NOT EXISTS globals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        last_checked_date TEXT 
       )`),
         (error: any) => {
           if (error) {

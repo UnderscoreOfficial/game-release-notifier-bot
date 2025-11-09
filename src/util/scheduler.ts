@@ -20,6 +20,7 @@ export default class Scheduler {
       `SELECT * FROM games WHERE released_status = ? AND api_type = ?`,
       [false, "giantbomb"],
     )) as GameDatabaseObj[];
+    let game_count = 0;
     for (let game of games) {
       const live_game = await GiantBombApi.getGame(game.id);
       const game_release_date = await GiantBombApi.gameReleaseDate(
@@ -28,7 +29,7 @@ export default class Scheduler {
       );
       await Database.game(
         game.server_id,
-        game.id,
+        game.game_id,
         game.api_type,
         game.name,
         live_game.deck || "",
@@ -38,11 +39,13 @@ export default class Scheduler {
         game_release_date.date,
         game.released_status,
       );
+      game_count++;
       await Utils.sleep(1000);
     }
+    console.log(`Updater ran updated (${game_count}) games.`);
   }
 
-  static async gameReleasedMessage(client: Client, game: GameDatabaseObj) {
+  static async #gameReleasedMessage(client: Client, game: GameDatabaseObj) {
     const settings = (await Database.get(
       "SELECT * FROM settings WHERE server_id = ?",
       [game.server_id],
@@ -52,7 +55,7 @@ export default class Scheduler {
 
     if (channel?.type == ChannelType.GuildText) {
       const embed = new EmbedBuilder()
-        .setColor(0x79a475)
+        .setColor(0x9275a4)
         .setTitle(`${game.name} - Released! :partying_face: :tada:`)
         .setURL(game.detail_url)
         .setImage(game.image_url)
@@ -65,18 +68,20 @@ export default class Scheduler {
     }
   }
 
+  // notifies all released games
   static async notifier(client: Client) {
     const games = (await Database.all(
       `SELECT * FROM games WHERE released_status = ? AND api_type = ?`,
       [false, "giantbomb"],
     )) as GameDatabaseObj[];
+    let game_count = 0;
     const current_date = new Date();
     for (let game of games) {
       const game_date = new Date(game.release_date);
       if (game_date < current_date) {
         await Database.game(
           game.server_id,
-          game.id,
+          game.game_id,
           game.api_type,
           game.name,
           game.description,
@@ -86,8 +91,10 @@ export default class Scheduler {
           game.release_date,
           true,
         );
-        await this.gameReleasedMessage(client, game);
+        await this.#gameReleasedMessage(client, game);
+        game_count++;
       }
     }
+    console.log(`Notifier ran (${game_count}) games released.`);
   }
 }

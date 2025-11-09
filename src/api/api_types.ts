@@ -11,10 +11,14 @@ export interface GiantbombPlatformValues {
   [key: string]: number;
 }
 
+export interface GlobalsDatabaseObj {
+  id: number;
+  last_checked_date: string;
+}
+
 export interface SettingsDatabaseObj {
   id: number;
   server_id: number;
-  last_checked_date: string;
   channel_id: string;
   platforms: string;
 }

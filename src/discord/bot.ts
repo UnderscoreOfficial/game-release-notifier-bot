@@ -11,11 +11,8 @@ import SlashCommands from "./slash_commands.js";
 import Page from "./page.js";
 import * as dotenv from "dotenv";
 import Database from "../util/database.js";
-import IgdbApi from "../api/igdb_api.js";
-import Utils from "../util/util.js";
-import Api from "../api/api.js";
 import cron from "node-cron";
-import { GameDatabaseObj } from "../api/api_types.js";
+import { GlobalsDatabaseObj } from "../api/api_types.js";
 import Scheduler from "../util/scheduler.js";
 
 dotenv.config();
@@ -43,17 +40,44 @@ export const client = new Client({
   ],
 });
 
-client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`${readyClient.user.tag} is primed and ready for gaming.`);
+// only runs updater every 7 days
+async function updateGames() {
+  const globals = (await Database.get("SELECT * FROM globals WHERE id = ?", [
+    1,
+  ])) as GlobalsDatabaseObj;
+  let last_checked_date;
+  if (!globals) {
+    const last_checked_date = new Date();
+    await Database.run("INSERT INTO globals (last_checked_date) VALUES (?)", [
+      String(last_checked_date.setDate(last_checked_date.getDate() + 7)),
+    ]);
+  } else {
+    last_checked_date = new Date(globals.last_checked_date);
+  }
+  const current_date = new Date();
+  if (!last_checked_date || last_checked_date < current_date) {
+    Scheduler.updater();
+    if (last_checked_date) {
+      last_checked_date = new Date();
+      await Database.run(
+        "UPDATE globals SET last_checked_date = ? WHERE id = ?",
+        [last_checked_date.setDate(last_checked_date.getDate() + 7), 1],
+      );
+    }
+  }
+}
+
+async function scheduledTasks(client: Client) {
+  updateGames();
+  Scheduler.notifier(client);
+}
+
+client.once(Events.ClientReady, async (client) => {
+  console.log(`${client.user.tag} is primed and ready for gaming.`);
   // start cron jobs.
-  cron.schedule("0 12 * * *", () => {
-    console.log("running a task every day at 12PM LETS GOOO BABBY");
-  });
-  // await Scheduler.notifier(readyClient);
-  const game = (await Database.get("SELECT * FROM games WHERE game_id = ?", [
-    84961,
-  ])) as GameDatabaseObj;
-  await Scheduler.gameReleasedMessage(client, game);
+  cron.schedule("0 12 * * *", () => scheduledTasks(client));
+  // startup scheduled tasks initial checks
+  scheduledTasks(client);
 });
 
 // handle interactions
