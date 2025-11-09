@@ -11,13 +11,26 @@ export interface GiantbombPlatformValues {
   [key: string]: number;
 }
 
+export interface SettingsDatabaseObj {
+  id: number;
+  server_id: number;
+  last_checked_date: string;
+  channel_id: string;
+  platforms: string;
+}
+
 export interface GameDatabaseObj {
   id: number;
   server_id: string;
   game_id: number;
   api_type: string;
   name: string;
+  description: string;
+  detail_url: string;
+  image_url: string;
+  platform: number;
   release_date: string;
+  released_status: boolean;
 }
 
 export interface ApiResultsBase {
@@ -31,7 +44,7 @@ export interface ApiResultsBase {
 }
 
 export interface GameReleaseDateObject {
-  date: Date | null;
+  date: string;
   type: string;
 }
 

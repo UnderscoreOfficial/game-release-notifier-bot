@@ -8,10 +8,11 @@ import {
   GameSearchResult,
   GiantbombPlatformValues,
   Platforms,
+  ReleaseRegion,
 } from "./api_types.js";
 import Database from "../util/database.js";
-import { url } from "inspector";
-import { resourceUsage } from "process";
+import { setTimeout } from "node:timers";
+import Utils from "../util/util.js";
 dotenv.config();
 
 export default class GiantBombApi {
@@ -119,6 +120,7 @@ export default class GiantBombApi {
         url,
       )) as unknown as ApiGameReleasesResults;
       combined_release_results.push(...releases_data.results);
+      await Utils.sleep(1000);
     }
     return combined_release_results;
   }
@@ -126,14 +128,26 @@ export default class GiantBombApi {
   public static async gameReleaseDate(
     current_game: GameSearchResult,
     selected_platform: number,
+    region: GameRelease | undefined = undefined,
   ): Promise<GameReleaseDateObject> {
     // first need to filter out if there is a original or first release date on the game
     //  if there is it must be verified to the selected_platform, the release can be missing
     //  for a valid platform.
+    let original_date = current_game.original_release_date;
+    if (region) {
+      original_date = region.release_date;
+    }
 
     // comparison data if there is a original / first release date
-    if (current_game.original_release_date) {
-      let date = new Date(current_game.original_release_date);
+    if (original_date) {
+      function releaseDateFormater(date: Date): string {
+        let month = date.getUTCMonth();
+        if (month) month++;
+        return `${month}-${date.getUTCDate()}-${date.getUTCFullYear()}`;
+      }
+
+      // I should look at this the date comparision is likely wrong due to Date changing timezone *fix*
+      let date = new Date(original_date);
       const all_platforms = Object.values(GiantBombApi.platforms).slice(1);
       const all_releases = await GiantBombApi.gameReleases(
         current_game.id as number,
@@ -148,7 +162,7 @@ export default class GiantBombApi {
         ) {
           console.log("Valid platform with release date");
           return {
-            date: date,
+            date: releaseDateFormater(date),
             type: "release",
           };
         } else if (
@@ -158,12 +172,12 @@ export default class GiantBombApi {
           console.log("Valid platform with different release date");
           date = new Date(String(release.release_date));
           return {
-            date: date,
+            date: releaseDateFormater(date),
             type: "release",
           };
         } else if (
           release.platform?.id != selected_platform &&
-          release.release_date == release.release_date
+          release.release_date == String(date)
         ) {
           releases_with_same_dates++;
         }
@@ -180,7 +194,7 @@ export default class GiantBombApi {
           "No found releases at all but original release date, likely games release date ",
         );
         return {
-          date: date,
+          date: releaseDateFormater(date),
           type: "release",
         };
       } else if (releases_with_same_dates == all_releases.length) {
@@ -188,7 +202,7 @@ export default class GiantBombApi {
           "No found release platforms but initial release date might be right",
         );
         return {
-          date: date,
+          date: releaseDateFormater(date),
           type: "missing",
         };
       } else {
@@ -196,7 +210,7 @@ export default class GiantBombApi {
           "Release date is likely missing for the specific desired platform",
         );
         return {
-          date: date,
+          date: releaseDateFormater(date),
           type: "missing",
         };
       }
@@ -211,14 +225,13 @@ export default class GiantBombApi {
     if (!expected_year || !expected_month || !expected_day) {
       console.warn("No full expected release date");
       return {
-        date: null,
+        date: "TBA___TBA_",
         type: "TBA",
       };
     }
-    const expected_date = `${expected_year}-${expected_month}-${expected_day}`;
-    const date = new Date(expected_date);
+    const expected_date = `${expected_month}-${expected_day}-${expected_year}`;
     return {
-      date: date,
+      date: expected_date,
       type: "expected",
     };
   }

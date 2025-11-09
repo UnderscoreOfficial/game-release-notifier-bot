@@ -14,6 +14,10 @@ import Database from "../util/database.js";
 import IgdbApi from "../api/igdb_api.js";
 import Utils from "../util/util.js";
 import Api from "../api/api.js";
+import cron from "node-cron";
+import { GameDatabaseObj } from "../api/api_types.js";
+import Scheduler from "../util/scheduler.js";
+
 dotenv.config();
 
 // type definitions
@@ -39,8 +43,17 @@ export const client = new Client({
   ],
 });
 
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} is primed and ready for gaming.`);
+  // start cron jobs.
+  cron.schedule("0 12 * * *", () => {
+    console.log("running a task every day at 12PM LETS GOOO BABBY");
+  });
+  // await Scheduler.notifier(readyClient);
+  const game = (await Database.get("SELECT * FROM games WHERE game_id = ?", [
+    84961,
+  ])) as GameDatabaseObj;
+  await Scheduler.gameReleasedMessage(client, game);
 });
 
 // handle interactions
