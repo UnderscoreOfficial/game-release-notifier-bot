@@ -7,8 +7,17 @@ This was built with [Discord.js](https://github.com/discordjs/discord.js), [SQLi
 
 ## Screenshots
 
-![Home](./assets/notifier-home.png)
-![Search](./assets/notifier-search.png)
+- Search for games to add.
+![Search game](./assets/notifier-game-search.png)
+*Uses giantbomb api limted 10 results max per search*
+
+- Add games your interested in.
+![added game](./assets/notifier-game-added.png)
+*Some games won't have a release date, will update once it gets a date*
+
+- Get notified when they release!
+![game released](./assets/notifier-search-game.png)
+*Releases send in selected channel selected in settings*
 
 ## Docker
 - Build
@@ -23,12 +32,16 @@ This was built with [Discord.js](https://github.com/discordjs/discord.js), [SQLi
 ```
 services:
   game-release-notifier-bot:
-    image: game-release-notifer-bot:1.0
-    container_name: game-release-notifer-bot
+    image: game-release-notifier-bot:1.0
+    container_name: game-release-notifier-bot
+    volumes:
+      - your_local_database_folder:/app/database
+    # all enviroment variables are required
     environment:
-      - DATABASE_URL=your_database_here
-    ports:
-      - 4444:3000 # left port number can be changed 
+      - API_KEY=#your_giantbomb_api_key
+      - DISCORD_TOKEN=#your_discord_token
+      - GUILD_ID=#your_server_id  #will be changed, only 1 server can be added.
+      - CLIENT_ID=#your_client_id
     restart: always
 ```
 - compose file should be .yaml can be named anything.
