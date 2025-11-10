@@ -12,10 +12,7 @@ export default class Api {
   public platforms: Platforms[];
   #igdb;
 
-  constructor(
-    guild_id: string,
-    platforms: Platforms[] = [GiantBombApi.platforms.ALL],
-  ) {
+  constructor(guild_id: string, platforms: Platforms[]) {
     this.#igdb = new IgdbApi();
     this.guild_id = guild_id;
     this.platforms = platforms;

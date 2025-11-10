@@ -2,6 +2,7 @@ import * as dotenv from "dotenv";
 import {
   ApiGameReleasesResults,
   ApiGameSearchResult,
+  ApiGameSearchResults,
   GamePlatforms,
   GameRelease,
   GameReleaseDateObject,
@@ -19,7 +20,6 @@ export default class GiantBombApi {
   static readonly #API_KEY = process.env["API_KEY"];
 
   public static readonly platforms = {
-    ALL: 0,
     PC: 94,
     SWITCH: 157,
     XBOX_ONE: 145,
@@ -31,37 +31,36 @@ export default class GiantBombApi {
   static async getPlatforms(guild_id: string): Promise<Platforms[]> {
     const sql = "SELECT platforms FROM settings WHERE server_id = ?";
     const select = await Database.get(sql, [guild_id]);
-    if (select && select["platforms"]) {
-      const platforms = await JSON.parse(select["platforms"]);
-      const converted_platforms: Platforms[] = [];
-      for (let key of platforms) {
-        switch (key) {
-          case "PC":
-            converted_platforms.push(GiantBombApi.platforms.PC);
-            break;
-          case "PS4":
-            converted_platforms.push(GiantBombApi.platforms.PS4);
-            break;
-          case "PS5":
-            converted_platforms.push(GiantBombApi.platforms.PS5);
-            break;
-          case "XBOX_ONE":
-            converted_platforms.push(GiantBombApi.platforms.XBOX_ONE);
-            break;
-          case "XBOX_SERIES":
-            converted_platforms.push(GiantBombApi.platforms.XBOX_SERIES);
-            break;
-          case "SWITCH":
-            converted_platforms.push(GiantBombApi.platforms.SWITCH);
-            break;
-          default:
-            converted_platforms.push(GiantBombApi.platforms.ALL);
-        }
+    const converted_platforms: Platforms[] = [];
+    let platforms = ["PC"];
+
+    try {
+      platforms = await JSON.parse(select["platforms"]);
+    } catch (error) {}
+
+    for (let key of platforms) {
+      switch (key) {
+        case "PC":
+          converted_platforms.push(GiantBombApi.platforms.PC);
+          break;
+        case "PS4":
+          converted_platforms.push(GiantBombApi.platforms.PS4);
+          break;
+        case "PS5":
+          converted_platforms.push(GiantBombApi.platforms.PS5);
+          break;
+        case "XBOX_ONE":
+          converted_platforms.push(GiantBombApi.platforms.XBOX_ONE);
+          break;
+        case "XBOX_SERIES":
+          converted_platforms.push(GiantBombApi.platforms.XBOX_SERIES);
+          break;
+        case "SWITCH":
+          converted_platforms.push(GiantBombApi.platforms.SWITCH);
+          break;
       }
-      return converted_platforms;
     }
-    const current_platform: Platforms[] = [GiantBombApi.platforms.ALL];
-    return current_platform;
+    return converted_platforms;
   }
 
   static #urlMakeSearch(query: string): string {
@@ -238,35 +237,32 @@ export default class GiantBombApi {
 
   public static async filterPlatforms(
     platforms: Platforms[],
-    search: any,
+    search: GameSearchResult[],
   ): Promise<[GameSearchResult[], GamePlatforms[][], number[]]> {
     const valid_platform_ids: number[] = [];
     const valid_games: GameSearchResult[] = [];
     const valid_platforms: GamePlatforms[][] = [];
 
-    if (!platforms.includes(GiantBombApi.platforms.ALL)) {
-      for (let key of platforms) {
-        if (Object.values(giantbomb_platform_values).includes(key)) {
-          valid_platform_ids.push(key);
-        }
+    for (let key of platforms) {
+      if (Object.values(giantbomb_platform_values).includes(key)) {
+        valid_platform_ids.push(key);
       }
+    }
 
-      for (let game of search) {
-        const platforms = game["platforms"] as GamePlatforms[];
-        if (platforms !== null && platforms.length) {
-          for (let game_platform of platforms) {
-            if (valid_platform_ids.includes(game_platform["id"])) {
-              const filtered_platforms = platforms.filter((item) =>
-                valid_platform_ids.includes(item["id"]),
-              );
-              valid_platforms.push(filtered_platforms);
-              valid_games.push(game);
-              break;
-            }
+    for (let game of search) {
+      const platforms = game["platforms"] as GamePlatforms[];
+      if (platforms !== null && platforms.length) {
+        for (let game_platform of platforms) {
+          if (valid_platform_ids.includes(game_platform["id"])) {
+            const filtered_platforms = platforms.filter((item) =>
+              valid_platform_ids.includes(item["id"]),
+            );
+            valid_platforms.push(filtered_platforms);
+            valid_games.push(game);
+            break;
           }
         }
       }
-      return [valid_games, valid_platforms, valid_platform_ids];
     }
     return [valid_games, valid_platforms, valid_platform_ids];
   }
@@ -276,7 +272,9 @@ export default class GiantBombApi {
     query: string,
   ): Promise<[GameSearchResult[], GamePlatforms[][], number[]]> {
     let search_url = this.#urlMakeSearch(query);
-    const search_data = (await this.#urlFetch(search_url)) as any;
+    const search_data = (await this.#urlFetch(
+      search_url,
+    )) as unknown as ApiGameSearchResults;
 
     const [valid_games, valid_platforms, valid_platform_ids] =
       await this.filterPlatforms(platforms, search_data["results"]);

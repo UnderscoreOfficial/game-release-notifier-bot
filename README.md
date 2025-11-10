@@ -8,12 +8,12 @@ This was built with [Discord.js](https://github.com/discordjs/discord.js), [SQLi
 ## Screenshots
 
 - Search for games to add.
-![Search game](./assets/notifier-game-search.png)
+![Search game](./assets/notifier-search-game.png)
 *Uses giantbomb api limted 10 results max per search*
 
 - Add games your interested in.
 ![added game](./assets/notifier-game-added.png)
-*Some games won't have a release date, will update once it gets a date*
+*Some games won't have a release date, games will update once they get a release date*
 
 - Get notified when they release!
 ![game released](./assets/notifier-search-game.png)

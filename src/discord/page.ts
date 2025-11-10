@@ -16,7 +16,6 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
-import Api from "../api/api.js";
 import Database from "../util/database.js";
 import {
   GameDatabaseObj,
@@ -25,10 +24,8 @@ import {
   GameReleaseDateObject,
   GameSearchResult,
   GiantbombPlatformValues,
-  Platforms,
 } from "../api/api_types.js";
 import GiantBombApi from "../api/giantbomb_api.js";
-import { title } from "process";
 
 // type definitions
 interface SearchObject {
@@ -279,10 +276,10 @@ export default class Page {
       if (select["platforms"] !== null) {
         selected_platforms = JSON.parse(select["platforms"]);
       } else {
-        selected_platforms.push("ALL");
+        selected_platforms.push("PC");
       }
     } else {
-      selected_platforms.push("ALL");
+      selected_platforms.push("PC");
     }
 
     for (let platform of Object.keys(GiantBombApi.platforms)) {
@@ -513,7 +510,6 @@ export default class Page {
 
     // ts check, It should be impossible to get past this without game_search
     if (!game_search || !game_search.length) {
-      console.log("game_search undefined");
       return;
     }
 
@@ -752,16 +748,6 @@ export default class Page {
         date_type = "Potential Release Date";
       }
 
-      // const year = game_release_date.date?.getUTCFullYear();
-      // let month = game_release_date.date?.getUTCMonth();
-      // const day = game_release_date.date?.getUTCDate();
-      // if (month) month++;
-      //
-      // let date = `${month}-${day}-${year}`;
-      // if (date.toLowerCase().includes("undefined")) {
-      //   date = "TBA___TBA_";
-      // }
-
       return {
         date: game_release_date.date,
         title: title,
@@ -787,13 +773,21 @@ export default class Page {
       embed
         .setTitle(game_messages.title)
         .setDescription(game_messages.description);
-      if (game_messages.date) {
+
+      if (game_messages.date_type == "TBA") {
+        embed.addFields({
+          name: game_messages.date_type,
+          value: "",
+        });
+        console.log(`${game_messages.date_type}: ${game_messages.date}`);
+      } else if (game_messages.date) {
         embed.addFields({
           name: game_messages.date_type,
           value: date.toDateString(),
         });
         console.log(`${game_messages.date_type}: ${game_messages.date}`);
       }
+
       minimalNavBar();
       this.#editMessage(client, embed, row);
       // add game to db
@@ -865,16 +859,25 @@ export default class Page {
       );
 
       const date = new Date(game_messages.date);
+
       embed
         .setTitle(game_messages.title)
         .setDescription(game_messages.description);
-      if (game_messages.date) {
+
+      if (game_messages.date_type == "TBA") {
+        embed.addFields({
+          name: game_messages.date_type,
+          value: "",
+        });
+        console.log(`${game_messages.date_type}: ${game_messages.date}`);
+      } else if (game_messages.date) {
         embed.addFields({
           name: game_messages.date_type,
           value: date.toDateString(),
         });
         console.log(`${game_messages.date_type}: ${game_messages.date}`);
       }
+
       minimalNavBar();
       this.#editMessage(client, embed, row);
       // add game to database
