@@ -475,11 +475,15 @@ client.on("interactionCreate", async (interaction) => {
           await Database.run(insert_sql, [selected_channel], resolve_message);
         } else {
           const update_sql =
-            "INSERT INTO settings (server_id, channel_id) VALUES (?, ?)";
+            "INSERT INTO settings (server_id, channel_id, platforms) VALUES (?, ?, ?)";
           const resolve_message = `Channel set to ${selected_channel}`;
           await Database.run(
             update_sql,
-            [select_interaction.guildId, selected_channel],
+            [
+              select_interaction.guildId,
+              selected_channel,
+              JSON.stringify(["PC"]),
+            ],
             resolve_message,
           );
         }

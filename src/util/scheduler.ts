@@ -51,20 +51,22 @@ export default class Scheduler {
       [game.server_id],
     )) as SettingsDatabaseObj;
 
-    const channel = await client.channels.fetch(settings.channel_id);
+    if (settings.channel_id) {
+      const channel = await client.channels.fetch(settings.channel_id);
 
-    if (channel?.type == ChannelType.GuildText) {
-      const embed = new EmbedBuilder()
-        .setColor(0x9275a4)
-        .setTitle(`${game.name} - Released! :partying_face: :tada:`)
-        .setURL(game.detail_url)
-        .setImage(game.image_url)
-        .setDescription(game.description)
-        .addFields({
-          name: "Game Released! :partying_face: :tada:",
-          value: `${game.release_date}`,
-        });
-      channel.send({ embeds: [embed] });
+      if (channel?.type == ChannelType.GuildText) {
+        const embed = new EmbedBuilder()
+          .setColor(0x9275a4)
+          .setTitle(`${game.name} - Released! :partying_face: :tada:`)
+          .setURL(game.detail_url)
+          .setImage(game.image_url)
+          .setDescription(game.description)
+          .addFields({
+            name: "Game Released! :partying_face: :tada:",
+            value: `${game.release_date}`,
+          });
+        channel.send({ embeds: [embed] });
+      }
     }
   }
 

@@ -4,6 +4,8 @@
 
 .env*
 *.db
+*.tar
 
 todo.txt
 pnpm-lock.yaml
+temp-game-notifer.yaml
