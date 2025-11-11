@@ -90,7 +90,7 @@ export default class Page {
     );
 
     const embed = new EmbedBuilder()
-      .setTitle("Game Notifer Home")
+      .setTitle("Game Notifier Home")
       .setDescription(
         `Explore the options and settings, search for a game and select the one you like 
       and it will be saved to your game list. If the game is not released yet you will be notifed in your selected channel
